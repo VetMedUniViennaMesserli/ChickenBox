@@ -1,37 +1,89 @@
 from abc import ABC, abstractmethod
 import paho.mqtt.client as mqtt
 from enum import Enum
+from threading import Thread
+import toml
+import os
+
+import sys
+sys.path.append(os.path.join(os.path.dirname(__file__), "Touchscreen"))
+sys.path.append(os.path.join(os.path.dirname(__file__), "Touchscreen", "Framework"))
+
+from PySide6 import QtCore
+from PySide6.QtCore import QThread
+from PySide6.QtWidgets import QApplication, QMainWindow
+from Touchscreen.go_nogo import startApp, createTouchscreenWindow
+from Framework.SessionConfig import SessionConfig
+from Framework.TrainingWindow import MainWindow
+from PySide6.QtGui import QColor
+
+import serial
+
+config = toml.load("./config.toml")
 
 class DoorIds(Enum):
     FRONT = 1
     EXIT = 2
 
 def open_door(door_id : DoorIds):
-    #TODO: implement code
-    pass
+    print("Opening door: " + str(door_id))
+    
+    if door_id == DoorIds.FRONT:
+        door_config = config['chickenbox']['gate1']
+    else:
+        door_config = config['chickenbox']['gate2']
+
+    #ser = serial.Serial(door_config['device'], door_config['baudrate'], timeout=1)
+    #ser.write(door_config['open_command'].encode())
+    #ser.close()
 
 def close_door(door_id : DoorIds):
-    #TODO: implement code
-    pass
+    print("Closing door: " + str(door_id))
 
-def start_experiment():
-    #TODO: implement call to experiment
-    pass
+    if door_id == DoorIds.FRONT:
+        door_config = config['chickenbox']['gate1']
+    else:
+        door_config = config['chickenbox']['gate2']
 
-class ChickenBoxManager():
-    def __init__(self):
+    #ser = serial.Serial(door_config['device'], door_config['baudrate'], timeout=1)
+    #ser.write(door_config['close_command'].encode())
+    #ser.close()
+
+class ChickenBoxManager(QtCore.QObject):
+    
+    start_experiment_signal = QtCore.Signal(object)
+
+    def __init__(self, app = None):
+        super().__init__()
+        self.app = app
+        self.mainWindow = MainWindow()
+        self.mainWindow.setStyleSheet("background-color: black;")
+        self.mainWindow.setAutoFillBackground(True)
+
         self.state = StartState(self)
 
+        self.mqtt_thread = Thread(target = self.start_mqtt_client)
+        self.mqtt_thread.start()
+
+        self.start_experiment_signal.connect(self.start_experiment)
+
+        self.mainWindow.showFullScreen()
+
+    def start_mqtt_client(self):
         self.mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
         self.mqtt_client.on_message = self.on_message
+        
+        if self.mqtt_client.connect(config['chickenbox']['mqttserver']['url'], config['chickenbox']['mqttserver']['port'], 60) != 0:
+            print("Couldn't connect to the mqtt broker")
+            sys.exit(1)
 
-        self.mqtt_client.connect("TODO", 1883, 60)
+        self.mqtt_client.subscribe("chickenbox")
+
         self.mqtt_client.loop_forever()
 
     def on_message(self, client, userdata, message):
         print("Message received: " + message.payload.decode())
 
-        #TODO: implement actual message handling
         if message.payload.decode() == "chicken_detected_in_box":
             self.chicken_detected_in_box()
             
@@ -45,7 +97,16 @@ class ChickenBoxManager():
         self.state.chicken_exited_box()
 
     def experiment_finished(self):
+        print("Experiment finished")
         self.state.experiment_finished()
+        
+    def start_experiment(self):
+        print("Starting experiment")
+        trainingWindow = createTouchscreenWindow(self.experiment_finished)
+        self.mainWindow.setCentralWidget(trainingWindow)
+        
+    def __del__(self):
+        self.mqtt_client.disconnect()
 
 class ChickenBoxState(ABC):
     def __init__(self, manager):
@@ -65,6 +126,7 @@ class ChickenBoxState(ABC):
 
 class StartState(ChickenBoxState):
     def __init__(self, manager):
+        print("Entering start state")
         super().__init__(manager)
 
     def chicken_detected_in_box(self):
@@ -79,8 +141,10 @@ class StartState(ChickenBoxState):
 
 class ExperimentState(ChickenBoxState):
     def __init__(self, manager):
+        print("Entering experiment state")
         super().__init__(manager)
-        start_experiment()
+
+        self.manager.start_experiment_signal.emit(None)
 
     def chicken_detected_in_box(self):
         pass
@@ -94,6 +158,7 @@ class ExperimentState(ChickenBoxState):
 
 class ResetState(ChickenBoxState):
     def __init__(self, manager):
+        print("Entering reset state")
         super().__init__(manager)
 
     def chicken_detected_in_box(self):
@@ -106,3 +171,10 @@ class ResetState(ChickenBoxState):
 
     def experiment_finished(self):
         pass
+
+if __name__ == "__main__":
+    app = QApplication([])
+    app.quitOnLastWindowClosed = True
+    manager = ChickenBoxManager(app)
+    app.aboutToQuit.connect(manager.__del__)
+    sys.exit(app.exec())

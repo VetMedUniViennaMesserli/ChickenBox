@@ -1,0 +1,28 @@
+name = "TOML Chickenbox config"
+
+[unit]
+name = "Haidlhof One"
+
+[chickenbox]
+
+[chickenbox.mqttserver]
+url = "localhost"
+port = 1883
+username = ""
+password = ""
+
+[chickenbox.gate1]
+device = "/dev/ttyACM0"
+baudrate = 115200
+command_close = 10
+command_open = 11
+
+[chickenbox.gate2]
+device = "/dev/ttyACM0"
+baudrate = 115200
+command_close = 20
+command_open = 21
+
+[chickenbox.detector]
+message_chicken_in_box = "chicken_detected_in_box"
+message_chicken_exited_box = "chicken_exited_box"
