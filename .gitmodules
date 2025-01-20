@@ -1,0 +1,3 @@
+[submodule "Touchscreen"]
+	path = Touchscreen
+	url = https://github.com/VetMedUniViennaMesserli/Touchscreen.git
